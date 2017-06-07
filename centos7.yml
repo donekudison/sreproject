@@ -1,0 +1,51 @@
+# roles/tasks/main.yml
+---
+- hosts: webserver
+  sudo: yes
+  vars:
+    http_port: 80
+    https_port: 443
+    domain: srechallengeproject.com
+    httpd_config: /etc/httpd/conf/httpd.conf
+    httpd_ssl_config:  /etc/httpd/conf.d/ssl.conf
+    roles:
+     - { role: sdoran.firewall, firewall_strict: True, firewall_allowed_tcp_ports: [ '22' , '80' , '443'] }
+     
+  tasks:
+    - include: tasks/virtualhost.yml
+    
+    - name: Install packages
+      yum: name={{ item }} update_cache=yes state=latest
+      with_items:
+       - httpd
+       - mod_ssl
+
+    - name: enabled mod_rewrite
+      apache2_module: name=rewrite state=present
+      notify:
+        - restart httpd
+      
+    - name: Ensure Apache is always running
+      service:name=httpd state=started enabled=yes
+      
+
+    - name: Install main configuration file
+    template:src=httpd.conf.j2 dest={{ httpd_config }} 
+     owner=ansadm group=ansadm mode=0644 setype=httpd_config_t
+     notify: restart httpd
+      
+
+   - name: Install mod_ssl configuration file
+     template: src=ssl.conf.j2 dest={{ httpd_ssl_config }}
+     owner=ansadm group=ansadm mode=0644 setype=httpd_config_t
+     notify: restart httpd
+    
+
+    - name: httpd listen on port {{ https_port }}
+      lineinfile: dest=/etc/httpd/ports.conf regexp="^Listen " line="Listen {{ https_port }}" state=present create=True
+      notify:
+        - restart httpd
+
+  handlers:
+    - name: restart httpd
+      service: name=httpd state=restarted
